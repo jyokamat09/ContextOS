@@ -9,7 +9,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-cache = redis.Redis(host='localhost', port=6379, db=0)
+
+try:
+    cache = redis.Redis(host='localhost', port=6379, db=0)
+    cache.ping()
+except:
+    cache = None
 
 def find_relevant_chunks(question: str, document_id: int, db: Session, top_k: int = 3):
     chunks = db.query(DocumentChunk).filter(
@@ -26,11 +31,13 @@ def find_relevant_chunks(question: str, document_id: int, db: Session, top_k: in
 
 def ask_question(question: str, document_id: int, db: Session) -> dict:
     cache_key = f"answer:{document_id}:{question.lower().strip()}"
-    cached = cache.get(cache_key)
-    if cached:
-        result = json.loads(cached)
-        result["cached"] = True
-        return result
+
+    if cache:
+        cached = cache.get(cache_key)
+        if cached:
+            result = json.loads(cached)
+            result["cached"] = True
+            return result
 
     relevant_chunks = find_relevant_chunks(question, document_id, db)
     if not relevant_chunks:
@@ -58,5 +65,7 @@ Answer:"""
         "cached": False
     }
 
-    cache.setex(cache_key, 3600, json.dumps(result))
+    if cache:
+        cache.setex(cache_key, 3600, json.dumps(result))
+
     return result
